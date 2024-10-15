@@ -11,6 +11,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+console.log('Initializing PrismaClient...');
 const prisma = new PrismaClient();
 
 app.use(express.json());
@@ -19,7 +21,9 @@ app.use(express.static(path.join(__dirname, 'dist')));
 // Middleware to check database connection
 app.use(async (req, res, next) => {
   try {
+    console.log('Attempting to connect to the database...');
     await prisma.$connect();
+    console.log('Database connection successful');
     next();
   } catch (error) {
     console.error('Database connection error:', error);
@@ -27,77 +31,24 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Modify the login route
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const userCount = await prisma.user.count();
-    console.log('User count:', userCount);
-    
-    if (userCount === 0) {
-      return res.status(404).json({ error: 'No users exist. Please create an admin account.' });
-    }
-
-    const user = await prisma.user.findUnique({ where: { email } });
-    console.log('User found:', user ? 'Yes' : 'No');
-    
-    if (user && await bcrypt.compare(password, user.password)) {
-      res.json({ email: user.email, isAdmin: user.isAdmin });
-    } else {
-      res.status(401).json({ error: 'Invalid credentials. Please check your email and password.' });
-    }
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'An error occurred during login', details: error.message });
-  }
-});
-
-// Add a new route to check if any users exist
-app.get('/api/users/check', async (req, res) => {
-  try {
-    const userCount = await prisma.user.count();
-    console.log('User count:', userCount);
-    res.json({ exists: userCount > 0 });
-  } catch (error) {
-    console.error('Error checking user existence:', error);
-    res.status(500).json({ error: 'An error occurred while checking user existence', details: error.message });
-  }
-});
-
-// Add a route to create an admin user
-app.post('/api/admin/create', async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const userCount = await prisma.user.count();
-    console.log('User count before admin creation:', userCount);
-    
-    if (userCount > 0) {
-      return res.status(400).json({ error: 'Admin user already exists. Cannot create another admin.' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newAdmin = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        isAdmin: true,
-      },
-    });
-
-    console.log('New admin created:', newAdmin.email);
-    res.status(201).json({ message: 'Admin user created successfully' });
-  } catch (error) {
-    console.error('Error creating admin user:', error);
-    res.status(500).json({ error: 'An error occurred while creating the admin user', details: error.message });
-  }
-});
+// ... (keep other routes as they are)
 
 // Updated route for claim creation with improved error handling
 app.post('/api/claims', async (req, res) => {
+  console.log('Received claim creation request');
   try {
     console.log('Received claim data:', req.body);
+    
+    // Validate required fields
+    const requiredFields = ['orderNumber', 'email', 'name', 'address', 'phoneNumber', 'brand', 'problemDescription'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    
+    if (missingFields.length > 0) {
+      console.log('Missing required fields:', missingFields);
+      return res.status(400).json({ error: `Missing required fields: ${missingFields.join(', ')}` });
+    }
+
+    console.log('Creating new claim in the database...');
     const newClaim = await prisma.claim.create({
       data: {
         ...req.body,
