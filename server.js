@@ -16,7 +16,83 @@ const prisma = new PrismaClient();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// ... existing routes ...
+// Middleware to check database connection
+app.use(async (req, res, next) => {
+  try {
+    await prisma.$connect();
+    next();
+  } catch (error) {
+    console.error('Database connection error:', error);
+    res.status(500).json({ error: 'Unable to connect to the database. Please try again later.' });
+  }
+});
+
+// Modify the login route
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const userCount = await prisma.user.count();
+    console.log('User count:', userCount);
+    
+    if (userCount === 0) {
+      return res.status(404).json({ error: 'No users exist. Please create an admin account.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    console.log('User found:', user ? 'Yes' : 'No');
+    
+    if (user && await bcrypt.compare(password, user.password)) {
+      res.json({ email: user.email, isAdmin: user.isAdmin });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials. Please check your email and password.' });
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'An error occurred during login', details: error.message });
+  }
+});
+
+// Add a new route to check if any users exist
+app.get('/api/users/check', async (req, res) => {
+  try {
+    const userCount = await prisma.user.count();
+    console.log('User count:', userCount);
+    res.json({ exists: userCount > 0 });
+  } catch (error) {
+    console.error('Error checking user existence:', error);
+    res.status(500).json({ error: 'An error occurred while checking user existence', details: error.message });
+  }
+});
+
+// Add a route to create an admin user
+app.post('/api/admin/create', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const userCount = await prisma.user.count();
+    console.log('User count before admin creation:', userCount);
+    
+    if (userCount > 0) {
+      return res.status(400).json({ error: 'Admin user already exists. Cannot create another admin.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newAdmin = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        isAdmin: true,
+      },
+    });
+
+    console.log('New admin created:', newAdmin.email);
+    res.status(201).json({ message: 'Admin user created successfully' });
+  } catch (error) {
+    console.error('Error creating admin user:', error);
+    res.status(500).json({ error: 'An error occurred while creating the admin user', details: error.message });
+  }
+});
 
 // Updated route for claim creation with improved error handling
 app.post('/api/claims', async (req, res) => {
@@ -40,7 +116,10 @@ app.post('/api/claims', async (req, res) => {
   }
 });
 
-// ... rest of the server code ...
+// Catch-all route to serve the React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
